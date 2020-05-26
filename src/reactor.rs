@@ -115,7 +115,19 @@ impl Reactor {
 
         // Create a source and register it.
         let key = vacant.key();
-        self.sys.register(raw, key)?;
+        // self.sys.register(raw, key)?;
+
+        // if we search `Source` at first, when we have a lot of `Async`, the `sources.iter()` is
+        // O(n) and it may degrade the performance.
+        if let Err(err) = self.sys.register(raw, key) {
+            if err.kind() == io::ErrorKind::AlreadyExists {
+                if let Some((_, source)) = sources.iter().find(|(_, source)| source.raw == raw) {
+                    return Ok(source.clone());
+                }
+            }
+
+            return Err(err);
+        }
 
         let source = Arc::new(Source {
             raw,
@@ -445,6 +457,7 @@ mod sys {
     use super::io_err;
 
     pub struct Reactor(RawFd);
+
     impl Reactor {
         pub fn new() -> io::Result<Reactor> {
             let epoll_fd = epoll_create1(EpollCreateFlags::EPOLL_CLOEXEC).map_err(io_err)?;
@@ -483,9 +496,11 @@ mod sys {
             Ok(events.len)
         }
     }
+
     fn read_flags() -> EpollFlags {
         EpollFlags::EPOLLIN | EpollFlags::EPOLLRDHUP
     }
+
     fn write_flags() -> EpollFlags {
         EpollFlags::EPOLLOUT
     }
@@ -494,6 +509,7 @@ mod sys {
         list: Box<[EpollEvent]>,
         len: usize,
     }
+
     impl Events {
         pub fn new() -> Events {
             let list = vec![EpollEvent::empty(); 1000].into_boxed_slice();
@@ -508,6 +524,7 @@ mod sys {
             })
         }
     }
+
     pub struct Event {
         pub readable: bool,
         pub writable: bool,
@@ -537,6 +554,7 @@ mod sys {
     use super::io_err;
 
     pub struct Reactor(RawFd);
+
     impl Reactor {
         pub fn new() -> io::Result<Reactor> {
             let fd = kqueue().map_err(io_err)?;
@@ -618,12 +636,14 @@ mod sys {
             Ok(events.len)
         }
     }
+
     const FFLAGS: FilterFlag = FilterFlag::empty();
 
     pub struct Events {
         list: Box<[KEvent]>,
         len: usize,
     }
+
     impl Events {
         pub fn new() -> Events {
             let flags = EventFlag::empty();
@@ -640,6 +660,7 @@ mod sys {
             })
         }
     }
+
     pub struct Event {
         pub readable: bool,
         pub writable: bool,
@@ -657,6 +678,7 @@ mod sys {
     use wepoll_binding::{Epoll, EventFlag};
 
     pub struct Reactor(Epoll);
+
     impl Reactor {
         pub fn new() -> io::Result<Reactor> {
             Ok(Reactor(Epoll::new()?))
@@ -695,20 +717,25 @@ mod sys {
             self.0.poll(&mut events.0, timeout)
         }
     }
+
     struct As(RawSocket);
+
     impl AsRawSocket for As {
         fn as_raw_socket(&self) -> RawSocket {
             self.0
         }
     }
+
     fn read_flags() -> EventFlag {
         EventFlag::IN | EventFlag::RDHUP
     }
+
     fn write_flags() -> EventFlag {
         EventFlag::OUT
     }
 
     pub struct Events(wepoll_binding::Events);
+
     impl Events {
         pub fn new() -> Events {
             Events(wepoll_binding::Events::with_capacity(1000))
@@ -721,6 +748,7 @@ mod sys {
             })
         }
     }
+
     pub struct Event {
         pub readable: bool,
         pub writable: bool,
